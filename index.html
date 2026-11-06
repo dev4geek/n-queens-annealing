@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>N-Queens • Simulated Annealing</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#131c31;--muted:#9aabc7;--accent:#70e1c1;--gold:#ffd166}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0%,#1c3151 0,#0b1020 48%);color:#edf4ff;font:15px system-ui,sans-serif}
+main{max-width:1080px;margin:auto;padding:30px 18px 50px}.hero{text-align:center;margin-bottom:24px}.eyebrow{color:var(--accent);letter-spacing:.18em;font-size:12px;font-weight:800}.hero h1{font-size:clamp(28px,5vw,46px);margin:8px 0}.hero p{color:var(--muted);margin:0}
+.layout{display:grid;grid-template-columns:minmax(280px,1.15fr) minmax(270px,.85fr);gap:18px}.panel{background:#131c31dd;border:1px solid #2b3a56;border-radius:20px;padding:20px;box-shadow:0 18px 50px #0004}
+.board{display:grid;grid-template-columns:repeat(8,1fr);width:min(100%,560px);aspect-ratio:1;margin:auto;border:5px solid #27364e;border-radius:8px;overflow:hidden}
+.cell{display:grid;place-items:center;font-size:clamp(24px,5vw,48px);position:relative}.light{background:#e8d9bd;color:#1b2330}.dark{background:#789078;color:#1b2330}.queen{filter:drop-shadow(0 3px 2px #0005);line-height:1}.conflict{background:#d94b58!important}.safe{background:#3bb88d!important}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:18px}.stat{background:#0c1426;border:1px solid #263653;border-radius:13px;padding:12px}.stat small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}.stat strong{font-size:24px}
+.controls{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}button{border:0;border-radius:11px;padding:11px 16px;font-weight:750;cursor:pointer;background:var(--accent);color:#092019}button.secondary{background:#273852;color:#edf4ff}button:disabled{opacity:.45;cursor:not-allowed}
+label{display:block;color:var(--muted);margin:14px 0 6px}input{width:100%;accent-color:var(--accent)}.bar{height:10px;background:#26344d;border-radius:20px;overflow:hidden;margin-top:8px}.bar span{display:block;height:100%;width:100%;background:linear-gradient(90deg,#70e1c1,#ffd166);transition:width .15s}
+#message{margin-top:16px;color:var(--gold);font-weight:700;min-height:24px}.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:12px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.note{color:var(--muted);font-size:13px;line-height:1.5;margin-top:18px}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.panel{padding:15px}}
+</style></head>
+<body><main>
+<header class="hero"><div class="eyebrow">OPTIMIZATION LAB · INTERACTIVE DEMO</div><h1>♛ The N-Queens Challenge</h1><p>Watch Simulated Annealing search for a conflict-free chessboard.</p></header>
+<div class="layout">
+<section class="panel"><div id="board" class="board" aria-label="Chessboard"></div><div class="legend"><span><i class="dot" style="background:#d94b58"></i>Queen in a conflict</span><span><i class="dot" style="background:#3bb88d"></i>Conflict-free queen</span></div><div id="message">Ready to search. Press Start.</div></section>
+<aside class="panel"><h2 style="margin:0 0 4px">Search dashboard</h2><p style="color:var(--muted);margin:0">Live algorithm metrics</p>
+<div class="stats"><div class="stat"><small>Current conflicts</small><strong id="conflicts">—</strong></div><div class="stat"><small>Best conflicts</small><strong id="best">—</strong></div><div class="stat"><small>Temperature</small><strong id="temp">20.00</strong></div><div class="stat"><small>Iterations</small><strong id="iterations">0</strong></div></div>
+<label for="speed">Animation speed</label><input id="speed" type="range" min="1" max="30" value="12">
+<div style="display:flex;justify-content:space-between;color:var(--muted);font-size:12px"><span>Relaxed</span><span>Fast</span></div>
+<label>Cooling temperature</label><div class="bar"><span id="heat"></span></div>
+<div class="controls"><button id="start">▶ Start</button><button id="pause" class="secondary" disabled>Ⅱ Pause</button><button id="reset" class="secondary">↻ Reset</button></div>
+<p class="note">Each column contains exactly one queen. A move swaps two rows, preserving one queen per row and column. Worse moves may be accepted with probability e<sup>−ΔE/T</sup>, helping the search escape local minima.</p>
+</aside></div></main>
+<script>
+const N=8, INITIAL_TEMP=20, COOLING=.997;
+let board=[],bestBoard=[],temp=INITIAL_TEMP,iteration=0,best=Infinity,running=false,timer=null,solved=false;
+const $=id=>document.getElementById(id);
+function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function energy(b){let c=0;for(let i=0;i<N;i++)for(let j=i+1;j<N;j++)if(Math.abs(b[i]-b[j])===j-i)c++;return c}
+function conflictCols(b){let s=new Set();for(let i=0;i<N;i++)for(let j=i+1;j<N;j++)if(Math.abs(b[i]-b[j])===j-i){s.add(i);s.add(j)}return s}
+function render(){
+ const boardEl=$('board'),bad=conflictCols(board);boardEl.innerHTML='';
+ for(let r=N-1;r>=0;r--)for(let c=0;c<N;c++){
+  const d=document.createElement('div');d.className='cell '+((r+c)%2?'dark':'light');
+  if(board[c]===r){d.classList.add(solved?'safe':bad.has(c)?'conflict':'safe');d.innerHTML='<span class="queen">♛</span>'}
+  boardEl.appendChild(d)
+ }
+ $('conflicts').textContent=energy(board);$('best').textContent=best;$('temp').textContent=temp.toFixed(3);$('iterations').textContent=iteration.toLocaleString();$('heat').style.width=(temp/INITIAL_TEMP*100)+'%';
+ $('message').textContent=solved?'🏆 Solution found! All 8 queens are safe.':running?'🔥 Exploring the search space…':'Paused — press Start to continue.';
+}
+function step(){
+ for(let k=0;k<Math.max(1,Math.round(34-Number($('speed').value)));k++){
+  let current=energy(board),candidate=board.slice(),a=Math.floor(Math.random()*N),b=Math.floor(Math.random()*N);while(a===b)b=Math.floor(Math.random()*N);
+  [candidate[a],candidate[b]]=[candidate[b],candidate[a]];
+  let next=energy(candidate),delta=next-current;
+  if(delta<=0||Math.random()<Math.exp(-delta/Math.max(temp,1e-12)))board=candidate;
+  let now=energy(board);if(now<best){best=now;bestBoard=board.slice()}
+  iteration++;temp*=COOLING;
+  if(now===0){solved=true;stop();break}
+  if(temp<.01){board=shuffle([...Array(N).keys()]);temp=INITIAL_TEMP}
+ }
+ render();
+}
+function start(){if(solved)return;running=true;$('start').disabled=true;$('pause').disabled=false;timer=setInterval(step,75)}
+function stop(){running=false;if(timer)clearInterval(timer);timer=null;$('start').disabled=solved;$('pause').disabled=true}
+function reset(){stop();board=shuffle([...Array(N).keys()]);best=energy(board);bestBoard=board.slice();temp=INITIAL_TEMP;iteration=0;solved=false;$('start').disabled=false;render()}
+$('start').onclick=start;$('pause').onclick=()=>{stop();$('message').textContent='Paused — press Start to continue.'};$('reset').onclick=reset;
+reset();
+</script></body></html>
